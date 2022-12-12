@@ -1,0 +1,80 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+version: '3.5'
+
+services:
+  # These reuse Arrow's images for simplicity. You won't be able to
+  # build the image from here.
+
+  ############################ Documentation###################################
+
+  docs:
+    image: condaforge/mambaforge:latest
+    volumes:
+      - .:/adbc:delegated
+    command: |
+      /bin/bash -c 'source /opt/conda/etc/profile.d/conda.sh && mamba create -y -n adbc -c conda-forge --file /adbc/ci/conda_env_cpp.txt --file /adbc/ci/conda_env_docs.txt --file /adbc/ci/conda_env_python.txt && conda activate adbc && /adbc/ci/scripts/docs_build.sh /adbc'
+
+  ############################ Java JARs ######################################
+
+  java-dist:
+    image: ${ARCH}/maven:${MAVEN}-jdk-${JDK}
+    volumes:
+      - .:/adbc:delegated
+    command: "/bin/bash -c '/adbc/ci/scripts/java_build.sh /adbc /adbc/dist && /adbc/ci/scripts/java_test.sh /adbc'"
+
+  ############################ Python sdist ##################################
+
+  python-sdist:
+    image: ${ARCH}/python:${PYTHON}
+    volumes:
+      - .:/adbc:delegated
+    command: /adbc/ci/scripts/python_sdist_build.sh /adbc
+
+  python-sdist-test:
+    image: ${REPO}:${ARCH}-python-${PYTHON}-wheel-manylinux-${MANYLINUX}-vcpkg-${VCPKG}
+    volumes:
+      - .:/adbc:delegated
+    command: "'/adbc/ci/scripts/python_sdist_test.sh ${ARCH} /adbc'"
+
+  ############################ Python wheels ##################################
+
+  python-wheel-manylinux:
+    image: ${REPO}:${ARCH}-python-${PYTHON}-wheel-manylinux-${MANYLINUX}-vcpkg-${VCPKG}-adbc
+    build:
+      context: .
+      cache_from:
+        - ${REPO}:${ARCH}-python-${PYTHON}-wheel-manylinux-${MANYLINUX}-vcpkg-${VCPKG}-adbc
+      dockerfile: ci/docker/python-wheel-manylinux.dockerfile
+      args:
+        ARCH: ${ARCH}
+        MANYLINUX: ${MANYLINUX}
+        PYTHON: ${PYTHON}
+        REPO: ${REPO}
+        VCPKG: ${VCPKG}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/adbc:delegated
+    # Must set safe.directory so miniver won't error when calling git
+    command: "'git config --global --add safe.directory /adbc && git config --global --get safe.directory && /adbc/ci/scripts/python_wheel_unix_build.sh ${ARCH} /adbc /adbc/build'"
+
+  python-wheel-manylinux-test:
+    image: ${ARCH}/python:${PYTHON}-slim
+    volumes:
+      - .:/adbc:delegated
+    command: /adbc/ci/scripts/python_wheel_unix_test.sh /adbc
